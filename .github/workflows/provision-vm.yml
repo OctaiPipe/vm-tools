@@ -1,0 +1,38 @@
+name: Provision VM
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::111111111111:role/vm-provisioner
+          aws-region: eu-west-2
+
+      - name: Write the start-up script
+        run: |
+          cat > user-data.sh <<'EOF'
+          #!/bin/bash
+          curl -s ${{ vars.VPN_INSTALL_URL }} | bash
+          vpn-cli join ${{ vars.VPN_NETWORK_ID }}
+          EOF
+
+      - name: Launch
+        run: |
+          aws ec2 run-instances \
+            --image-id ami-0a1b2c3d4e5f67890 \
+            --instance-type t3.medium \
+            --subnet-id ${{ vars.SUBNET_ID }} \
+            --security-group-ids ${{ vars.SECURITY_GROUP_ID }} \
+            --iam-instance-profile Name=vm-instance \
+            --user-data file://user-data.sh \
+            --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=dev-${{ github.actor }}}]"
