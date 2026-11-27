@@ -1,0 +1,20 @@
+name: Teardown expired VMs
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  teardown:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::111111111111:role/vm-provisioner
+          aws-region: eu-west-2
+      - run: pip install boto3 && python scripts/teardown.py

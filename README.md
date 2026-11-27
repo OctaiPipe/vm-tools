@@ -5,13 +5,17 @@ Throwaway VMs for engineers.
 ## Getting a VM
 
 1. Go to **Actions**, choose **Provision VM**, and press **Run workflow**.
-2. The VM is named `dev-` followed by your GitHub username.
-3. Ask someone in Internal Tools to approve the machine on the VPN.
-4. Connect to it over the VPN.
+2. Give it a name, say whether you need a GPU, and say how many hours you
+   need it for. The VM is named `dev-` followed by the name you gave.
+3. The VM approves itself on the VPN.
+4. Connect to it over the VPN, or by SSH to its public address.
 
-VMs have no public address. Delete yours in the AWS console when you are done.
+VMs are deleted automatically once their hours are up.
 
 ## Layout
 
 - `.github/workflows/provision-vm.yml`: starts a VM.
-- `iam/provisioner-policy.json`: what the workflow may do in AWS.
+- `.github/workflows/teardown.yml`: runs every night and deletes expired VMs.
+- `scripts/teardown.py`: the clean-up script.
+- `iam/provisioner-policy.json`: what the workflows may do in AWS.
+- `iam/provisioner-trust.json`: who may use those permissions.
