@@ -2,6 +2,17 @@ name: Provision VM
 
 on:
   workflow_dispatch:
+    inputs:
+      vm_name:
+        description: Name for the VM
+        required: true
+      gpu:
+        description: Give the VM a GPU
+        type: boolean
+        default: false
+      ttl_hours:
+        description: Hours until the VM is deleted
+        default: "72"
 
 permissions:
   id-token: write
@@ -24,15 +35,44 @@ jobs:
           #!/bin/bash
           curl -s ${{ vars.VPN_INSTALL_URL }} | bash
           vpn-cli join ${{ vars.VPN_NETWORK_ID }}
+          NODE=$(vpn-cli node-id)
+          # Approve this machine on the VPN so nobody has to do it by hand
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.VPN_ADMIN_TOKEN }}" \
+            -d '{"config": {"authorized": true}}' \
+            "${{ vars.VPN_API_URL }}/networks/${{ vars.VPN_NETWORK_ID }}/members/$NODE"
           EOF
 
       - name: Launch
+        id: launch
         run: |
-          aws ec2 run-instances \
+          TYPE=t3.medium
+          if [ "${{ inputs.gpu }}" = "true" ]; then TYPE=g5.xlarge; fi
+
+          ID=$(aws ec2 run-instances \
             --image-id ami-0a1b2c3d4e5f67890 \
-            --instance-type t3.medium \
+            --instance-type "$TYPE" \
             --subnet-id ${{ vars.SUBNET_ID }} \
             --security-group-ids ${{ vars.SECURITY_GROUP_ID }} \
+            --associate-public-ip-address \
+            --key-name shared-dev-key \
             --iam-instance-profile Name=vm-instance \
             --user-data file://user-data.sh \
-            --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=dev-${{ github.actor }}}]"
+            --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=dev-${{ inputs.vm_name }}}]" \
+            --query 'Instances[0].InstanceId' --output text)
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
+      - name: Open SSH
+        run: |
+          aws ec2 authorize-security-group-ingress \
+            --group-id ${{ vars.SECURITY_GROUP_ID }} \
+            --protocol tcp --port 22 --cidr 0.0.0.0/0 || true
+
+      - name: Wait until the VM is ready
+        run: aws ec2 wait instance-status-ok --instance-ids ${{ steps.launch.outputs.id }}
+
+      - name: Set the expiry
+        run: |
+          EXPIRES=$(date -u -d "+${{ inputs.ttl_hours }} hours" +%Y-%m-%dT%H:%M:%SZ)
+          aws ec2 create-tags --resources ${{ steps.launch.outputs.id }} \
+            --tags Key=ExpiresAt,Value=$EXPIRES
